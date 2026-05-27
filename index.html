@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>[新式]気象警報ビューアーv1.2.0</title>
+<title>[新式]気象警報ビューアーv1.2.5</title>
 <style>
 body {
   font-family:"Yu Gothic","YuGothic","メイリオ",sans-serif;
@@ -33,9 +33,6 @@ body {
   padding: 10px 10px;
   margin-bottom: 0px;
   cursor: pointer;
-}
-.hidden {
-  display: none;
 }
 </style>
 </head>
@@ -173,7 +170,7 @@ const warnArea = {
   "49":{name:"レベル４土砂災害危険警報",level:4}
 };
 
-// 大地域名のマッピング用マスター
+// 大地域名マッピング用マスター（表示上の見出し用）
 const areaCodeMap = {
   "0160": "石狩・空知・後志地方", "0110": "宗谷地方", "0120": "上川・留萌地方", "0130": "網走・北見・紋別地方",
   "0140": "十勝地方", "0141": "釧路・根室地方", "0150": "胆振・日高地方", "0170": "渡島・檜山地方",
@@ -188,6 +185,9 @@ const areaCodeMap = {
   "4730": "宮古島地方", "4740": "八重山地方"
 };
 
+// 気象庁の自治体コード・名称マスターをキャッシュする変数
+let jmaAreaNames = null;
+
 function getWarnColor(level) {
   switch (level) {
     case 2: return "🟨";
@@ -198,25 +198,43 @@ function getWarnColor(level) {
   }
 }
 
+// 気象庁の地域コード名称マスターを取得する関数
+async function fetchAreaNames() {
+  if (jmaAreaNames) return jmaAreaNames;
+  try {
+    const res = await fetch("https://www.jma.go.jp/bosai/common/const/area.json");
+    const areaJson = await res.json();
+    jmaAreaNames = areaJson.offices || {};
+    // centersやclass20sなど、すべてのマスターから引けるように統合
+    Object.assign(jmaAreaNames, areaJson.centers || {}, areaJson.class10s || {}, areaJson.class15s || {}, areaJson.class20s || {});
+    return jmaAreaNames;
+  } catch (e) {
+    console.error("地域名マスターの取得に失敗しました", e);
+    return {};
+  }
+}
+
 async function update() {
   const mode = parseInt(document.querySelector('input[name="mode"]:checked').value);
   const areaSelect = document.getElementById("areaSelect");
   const selectedValue = areaSelect.value; 
   const selectedText = areaSelect.options[areaSelect.selectedIndex].text;
 
-  // 現在時刻のセット
   const now = new Date();
   document.getElementById("updateTime").textContent = `取得日時: ${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
   try {
     document.getElementById("eew").textContent = "読み込み中...";
 
-    // 気象庁の現在発表中の警報・注意報APIを取得
+    // 1. コードに対応する自治体名マスターを読み込み
+    const nameMaster = await fetchAreaNames();
+
+    // 2. 気象庁のリアルタイム警告API(map.json)を取得
     const res = await fetch('https://www.jma.go.jp/bosai/warning/data/warning/map.json');
-    if (!res.ok) throw new Error("気象庁からデータが取得できませんでした。");
+    if (!res.ok) throw new Error("気象庁から警告データを取得できませんでした。");
     const dataJson = await res.json();
 
-    // 最新の発表日時を取得
+    // 最新の発表時刻を取得（最上位配列の最初の要素から）
     let reportDtStr = now.toISOString();
     if (dataJson.length > 0 && dataJson[0].reportDatetime) {
       reportDtStr = dataJson[0].reportDatetime;
@@ -232,55 +250,69 @@ async function update() {
     let text = `《${titleArea}${titleKind}》\n${MM}月${dd}日${HH}時${mm}分 更新\n`;
 
     // 分類集計用オブジェクト
-    // 構造: { "レベル３大雨警報": { "東京都": ["新宿区", "渋谷区"] } }
     const summary = {};
 
-    // APIデータをループ解析
-    dataJson.forEach(areaData => {
-      const cityCode = areaData.code;      // 市町村コード (例: "1310400")
-      const cityName = areaData.name || cityCode; // 市町村名 (例: "新宿区")
+    // 3. ご提示いただいた多重階層（dataJson -> areaTypes -> areas -> warnings）を正しく解析ループ
+    dataJson.forEach(rootItem => {
+      if (!rootItem.areaTypes) return;
       
-      // 地域フィルタリング
-      if (selectedValue !== "全国") {
-        if (selectedValue.length === 4) { // 北海道の振興局など
-          if (!cityCode.startsWith(selectedValue)) return;
-        } else if (selectedValue === "460100") { // 鹿児島（奄美除く）
-          if (!cityCode.startsWith("46") || cityCode.startsWith("460040")) return;
-        } else { // 通常の都道府県コードなど
-          if (!cityCode.startsWith(selectedValue.substring(0, 2))) return;
-        }
-      }
-
-      // 該当自治体に発表中の情報をチェック
-      if (areaData.components) {
-        areaData.components.forEach(kindCode => {
-          const info = warnArea[kindCode];
-          // 定義外、または選択レベル未満の情報はスキップ
-          if (!info || info.level === null || info.level < mode) return;
-
-          // 親地域名（都道府県名や地方名）を特定
-          let parentAreaName = "その他地域";
-          for (const code in areaCodeMap) {
-            if (cityCode.startsWith(code)) {
-              parentAreaName = areaCodeMap[code];
-              break;
+      rootItem.areaTypes.forEach(typeGroup => {
+        if (!typeGroup.areas) return;
+        
+        typeGroup.areas.forEach(areaData => {
+          const cityCode = areaData.code; // 自治体コード (例: "0151100" や "011000")
+          
+          // 地域フィルタリングロジック
+          if (selectedValue !== "全国") {
+            if (selectedValue.length === 4) { // 北海道の各振興局など
+              if (!cityCode.startsWith(selectedValue)) return;
+            } else if (selectedValue === "460100") { // 鹿児島（奄美除く）
+              if (!cityCode.startsWith("46") || cityCode.startsWith("460040")) return;
+            } else { // 通常の都道府県コードなど
+              if (!cityCode.startsWith(selectedValue.substring(0, 2))) return;
             }
           }
 
-          // データを格納
-          if (!summary[info.name]) summary[info.name] = {};
-          if (!summary[info.name][parentAreaName]) summary[info.name][parentAreaName] = [];
-          
-          if (!summary[info.name][parentAreaName].includes(cityName)) {
-            summary[info.name][parentAreaName].push(cityName);
+          // 発表されている警告情報を処理
+          if (areaData.warnings) {
+            areaData.warnings.forEach(warnItem => {
+              // 「解除」や対象外ステータスはスキップ（statusが"発表"や"継続"のものを対象にする）
+              if (warnItem.status === "解除" || warnItem.status === "なし") return;
+
+              const kindCode = warnItem.code; // 警告コード (例: "15" や "20")
+              const info = warnArea[kindCode];
+              
+              // マスターにない、または選択レベル未満の情報はスキップ
+              if (!info || info.level === null || info.level < mode) return;
+
+              // コードから日本語の地域名に変換（マスターになければコードをそのまま表示）
+              const cityName = nameMaster[cityCode] ? nameMaster[cityCode].name : cityCode;
+
+              // 親地域名（都道府県名や地方見出し）を特定
+              let parentAreaName = "その他地域";
+              for (const code in areaCodeMap) {
+                if (cityCode.startsWith(code)) {
+                  parentAreaName = areaCodeMap[code];
+                  break;
+                }
+              }
+
+              // データの多重階層オブジェクトへ整理
+              if (!summary[info.name]) summary[info.name] = {};
+              if (!summary[info.name][parentAreaName]) summary[info.name][parentAreaName] = [];
+              
+              if (!summary[info.name][parentAreaName].includes(cityName)) {
+                summary[info.name][parentAreaName].push(cityName);
+              }
+            });
           }
         });
-      }
+      });
     });
 
-    // 組み上げ
+    // 4. 出力テキストの組み立て処理
     let count = 0;
-    // 重い順（特別警報 -> 危険警報 -> 警報 -> 注意報）にソートして出力
+    // 重い順（レベル5特別警報 -> レベル4危険警報 -> レベル3警報 -> レベル2注意報）にソートして出力
     const sortedWarnKeys = Object.keys(warnArea).sort((a, b) => warnArea[b].level - warnArea[a].level);
     const printedWarns = new Set();
 
@@ -295,6 +327,7 @@ async function update() {
       
       for (const pName in summary[warnName]) {
         text += `\n【${pName}】\n`;
+        // 自治体名をスペース区切りで連結
         text += summary[warnName][pName].join("　");
       }
       printedWarns.add(warnName);
@@ -312,7 +345,7 @@ async function update() {
   }
 }
 
-// 初期化とイベント設定
+// 初期化とイベントのバインド
 window.addEventListener("load", update);
 
 document.getElementById("copyBtn").addEventListener("click", async () => {
