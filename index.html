@@ -1,492 +1,391 @@
-<!-- =========================
- 気象警報ビューア XML版
- map.json → XML feed対応
-========================= -->
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-content="width=device-width, initial-scale=1.0">
-
-<title>気象情報ビューアー XML版</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>気象警報ビューアーv3.0.0 (気象庁XML・警戒レベル名称版)</title>
 <style>
-
-body{
-  font-family:
-  "Yu Gothic","YuGothic",
-  "メイリオ",sans-serif;
-
-  margin:5px;
-  background:#fff;
+body {
+  font-family:"Yu Gothic","YuGothic","メイリオ",sans-serif;
+  white-space: pre-wrap;
+  margin: 5px;
+  padding: 5px;
+  background: #fff;
+  font-size: 14px;
+  line-height: 1.4;
 }
-
-#eew{
-  white-space:pre-wrap;
-  font-size:18px;
-  line-height:1.6;
+#eew { 
+  margin: 0; 
+  padding: 0; 
+  font-family:"Yu Gothic","YuGothic","メイリオ",sans-serif;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
-
-button{
-  margin-top:10px;
-  padding:8px 14px;
-  font-size:16px;
+#copyBtn {
+  font-size: 12px;
+  padding: 2px 5px;
+  margin-bottom: 0px;
+  cursor: pointer;
 }
-
-#updateTime{
-  color:#666;
-  margin-bottom:10px;
+#areaSelect {
+  font-size: 12px;
+  padding: 10px 10px;
+  margin-bottom: 0px;
+  cursor: pointer;
 }
-
+.hidden {
+  display: none;
+}
 </style>
 </head>
-
 <body>
+<div id="updateTime">取得日時: ----/--/-- --:--:--</div>
+<button id="copyBtn">&nbsp;<br>　　　本文をコピー　　　<br>&nbsp;</button>
+<select id="areaSelect">
+  <option selected>全国</option>
+  <optgroup label="北海道地方">
+    <option>石狩・空知・後志地方</option>
+    <option>宗谷地方</option>
+    <option>上川・留萌地方</option>
+    <option>網走・北見・紋別地方</option>
+    <option>十勝地方</option>
+    <option>釧路・根室地方</option>
+    <option>胆振・日高地方</option>
+    <option>渡島・檜山地方</option>
+  </optgroup>
+  <optgroup label="東北地方">
+    <option>青森県</option>
+    <option>岩手県</option>
+    <option>宮城県</option>
+    <option>秋田県</option>
+    <option>山形県</option>
+    <option>福島県</option>
+  </optgroup>
+  <optgroup label="関東甲信地方">
+    <option>茨城県</option>
+    <option>栃木県</option>
+    <option>群馬県</option>
+    <option>埼玉県</option>
+    <option>千葉県</option>
+    <option>東京都</option>
+    <option>神奈川県</option>
+    <option>山梨県</option>
+    <option>長野県</option>
+  </optgroup>
+  <optgroup label="東海地方">
+    <option>岐阜県</option>
+    <option>静岡県</option>
+    <option>愛知県</option>
+    <option>三重県</option>
+  </optgroup>
+  <optgroup label="北陸地方">
+    <option>新潟県</option>
+    <option>富山県</option>
+    <option>石川県</option>
+    <option>福井県</option>
+  </optgroup>
+  <optgroup label="近畿地方">
+    <option>滋賀県</option>
+    <option>京都府</option>
+    <option>大阪府</option>
+    <option>兵庫県</option>
+    <option>奈良県</option>
+    <option>和歌山県</option>
+  </optgroup>
+  <optgroup label="中国地方">
+    <option>鳥取県</option>
+    <option>島根県</option>
+    <option>岡山県</option>
+    <option>広島県</option>
+    <option>山口県</option>
+  </optgroup>
+  <optgroup label="四国地方">
+    <option>徳島県</option>
+    <option>香川県</option>
+    <option>愛媛県</option>
+    <option>高知県</option>
+  </optgroup>
+  <optgroup label="九州北部地方（山口県を含む）">
+    <option>山口県</option>
+    <option>福岡県</option>
+    <option>佐賀県</option>
+    <option>長崎県</option>
+    <option>熊本県</option>
+    <option>大分県</option>
+  </optgroup>
+  <optgroup label="九州南部・奄美地方">
+    <option>宮崎県</option>
+    <option>鹿児島県（奄美地方を除く）</option>
+    <option>奄美地方（鹿児島県）</option>
+  </optgroup>
+  <optgroup label="沖縄地方">
+    <option>沖縄本島地方</option>
+    <option>大東島地方</option>
+    <option>宮古島地方</option>
+    <option>八重山地方</option>
+  </optgroup>
+</select>
 
-<div id="updateTime"></div>
+<label><input type="radio" name="mode" value="all"> 全情報</label>
+<label><input type="radio" name="mode" value="keihou" checked> 警報以上</label>
+<label><input type="radio" name="mode" value="kiken_keihou"> 危険警報以上</label>
 
-<div id="eew">取得中...</div>
-
-<button id="copyBtn">
-コピー
-</button>
+<pre id="eew">読み込み中...</pre>
 
 <script>
+// 警報・注意報に「レベル〇」の接頭語をつけた定義マップ
+const warnAreaDefinition = {
+  "02": { name: "レベル３暴風雪警報", level: 3 },
+  "03": { name: "レベル３大雨警報", level: 3 },
+  "04": { name: "レベル３洪水警報", level: 3 },
+  "05": { name: "レベル３暴風警報", level: 3 },
+  "06": { name: "レベル３大雪警報", level: 3 },
+  "07": { name: "レベル３波浪警報", level: 3 },
+  "08": { name: "レベル３高潮警報", level: 3 },
+  "09": { name: "レベル３土砂災害警報", level: 3 },
+  "10": { name: "レベル２大雨注意報", level: 2 },
+  "12": { name: "レベル２大雪注意報", level: 2 },
+  "13": { name: "レベル２風雪注意報", level: 2 },
+  "14": { name: "レベル２雷注意報", level: 2 },
+  "15": { name: "レベル２強風注意報", level: 2 },
+  "16": { name: "レベル２波浪注意報", level: 2 },
+  "17": { name: "レベル２融雪注意報", level: 2 },
+  "18": { name: "レベル２洪水注意報", level: 2 },
+  "19": { name: "レベル２高潮注意報", level: 2 },
+  "20": { name: "レベル２濃霧注意報", level: 2 },
+  "21": { name: "レベル２乾燥注意報", level: 2 },
+  "22": { name: "レベル２なだれ注意報", level: 2 },
+  "23": { name: "レベル２低温注意報", level: 2 },
+  "24": { name: "レベル２霜注意報", level: 2 },
+  "25": { name: "レベル２着氷注意報", level: 2 },
+  "26": { name: "レベル２着雪注意報", level: 2 },
+  "27": { name: "レベル２その他の注意報", level: 2 },
+  "29": { name: "レベル２土砂災害注意報", level: 2 },
+  "32": { name: "レベル５暴風雪特別警報", level: 5 },
+  "33": { name: "レベル５大雨特別警報", level: 5 },
+  "35": { name: "レベル５暴風特別警報", level: 5 },
+  "36": { name: "レベル５大雪特別警報", level: 5 },
+  "37": { name: "レベル５波浪特別警報", level: 5 },
+  "38": { name: "レベル５高潮特別警報", level: 5 },
+  "39": { name: "レベル５土砂災害特別警報", level: 5 },
+  "43": { name: "レベル４大雨危険警報", level: 4 },
+  "48": { name: "レベル４高潮危険警報", level: 4 },
+  "49": { name: "レベル４土砂災害危険警報", level: 4 }
+};
 
-// ===============================
-// 現在時刻表示
-// ===============================
-
-function setNowTime(){
-
+function setNowTime() {
   const now = new Date();
-
   const YYYY = now.getFullYear();
-
-  const MM =
-  String(now.getMonth()+1)
-  .padStart(2,'0');
-
-  const dd =
-  String(now.getDate())
-  .padStart(2,'0');
-
-  const HH =
-  String(now.getHours())
-  .padStart(2,'0');
-
-  const mm =
-  String(now.getMinutes())
-  .padStart(2,'0');
-
-  const ss =
-  String(now.getSeconds())
-  .padStart(2,'0');
-
-  document.getElementById(
-    "updateTime"
-  ).textContent =
-
-  `取得日時:
-  ${YYYY}/${MM}/${dd}
-  ${HH}:${mm}:${ss}`;
-
+  const MM = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const HH = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  document.getElementById("updateTime").textContent = `取得日時: ${YYYY}/${MM}/${dd} ${HH}:${mm}:${ss}`;
 }
 
-// ===============================
-// 色
-// ===============================
+async function update() {
+  setNowTime();
+  
+  const modeVal = document.querySelector('input[name="mode"]:checked').value;
+  let modeLevel = 2;
+  if (modeVal === "all") modeLevel = 2;
+  if (modeVal === "keihou") modeLevel = 3;
+  if (modeVal === "kiken_keihou") modeLevel = 4;
 
-function getWarnColor(level){
-
-  if(level===5) return "🟪";
-  if(level===4) return "🟥";
-  if(level===3) return "🟧";
-  if(level===2) return "🟨";
-
-  return "";
-
+  const areaSelect = document.getElementById("areaSelect").value;
+  
+  await main(modeLevel, areaSelect);
 }
 
-// ===============================
-// メイン
-// ===============================
+async function main(modeLevel = 3, taisho_chiiki = "全国") {
+  try {
+    // XMLフィードから最新の気象警報・注意報をパースして取得
+    const { warnData, reportDatetime } = await parseJmaXmlData();
 
-async function main(mode=2){
+    const dt = new Date(reportDatetime);
+    const MM = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const HH = String(dt.getHours()).padStart(2, '0');
+    const mm = String(dt.getMinutes()).padStart(2, '0');
 
-try{
+    let titleKind = "";
+    if (modeLevel === 2) titleKind = "気象警報・注意報";
+    else if (modeLevel === 3) titleKind = "気象警報";
+    else if (modeLevel === 4) titleKind = "気象危険/特別警報";
 
-// ===============================
-// 警報レベル
-// ===============================
+    let titleArea1 = (taisho_chiiki === "全国") ? "全国の" : "";
+    let titleArea2 = (taisho_chiiki === "全国") ? "" : "\n" + taisho_chiiki;
 
-const warnArea = {
+    let text = `《${titleArea1}${titleKind}》${titleArea2}\n${MM}月${dd}日${HH}時${mm}分 発表`;
+    let count = 0;
 
-"暴風雪特別警報":5,
-"大雨特別警報":5,
-"暴風特別警報":5,
-"大雪特別警報":5,
-"波浪特別警報":5,
-"高潮特別警報":5,
+    // 定義されている警報・注意報をループして出力用テキストを作成
+    for (const code in warnAreaDefinition) {
+      const info = warnAreaDefinition[code];
+      if (info.level < modeLevel) continue;
 
-"大雨危険警報":4,
-"高潮危険警報":4,
+      const customWarnName = info.name; // 「レベル３大雨警報」など
+      const areas = warnData[customWarnName];
+      if (!areas || Object.keys(areas).length === 0) continue;
 
-"暴風雪警報":3,
-"大雨警報":3,
-"洪水警報":3,
-"暴風警報":3,
-"大雪警報":3,
-"波浪警報":3,
-"高潮警報":3,
+      let block = "";
+      let hasArea = false;
 
-"大雨注意報":2,
-"洪水注意報":2,
-"大雪注意報":2,
-"風雪注意報":2,
-"雷注意報":2,
-"強風注意報":2,
-"波浪注意報":2,
-"濃霧注意報":2,
-"乾燥注意報":2
+      for (const areaName in areas) {
+        // 地域フィルタ（全国、または選択された一次細分区域名が一致する場合）
+        if (taisho_chiiki !== "全国" && areaName !== taisho_chiiki) continue;
 
-};
+        const cities = areas[areaName];
+        if (!cities || cities.length === 0) continue;
 
-// ===============================
-// XML取得
-// ===============================
+        if (!hasArea) {
+          const color = getWarnColor(info.level);
+          block += `\n\n${color}${customWarnName}${color}`;
+          hasArea = true;
+          count++;
+        }
 
-const result =
-await getCityWarningsByArea();
+        block += `\n【${areaName}】\n`;
+        block += cities.join("　");
+      }
 
-// ===============================
-// 発表時刻
-// ===============================
+      text += block;
+    }
 
-const dt =
-new Date(result.reportDateTime);
+    if (count === 0) {
+      if (modeLevel === 2) text += "\n\n発表中の気象警報・注意報等はありません。";
+      else if (modeLevel === 3) text += "\n\n発表中の気象警報はありません。";
+      else if (modeLevel === 4) text += "\n\n発表中の危険警報・特別警報はありません。";
+    }
 
-const MM =
-String(dt.getMonth()+1)
-.padStart(2,'0');
-
-const dd =
-String(dt.getDate())
-.padStart(2,'0');
-
-const HH =
-String(dt.getHours())
-.padStart(2,'0');
-
-const mm =
-String(dt.getMinutes())
-.padStart(2,'0');
-
-// ===============================
-// タイトル
-// ===============================
-
-let titleKind = "";
-
-if(mode===2)
-titleKind="気象警報・注意報";
-
-if(mode===3)
-titleKind="気象警報";
-
-if(mode===4)
-titleKind="気象危険・特別警報";
-
-// ===============================
-// 本文
-// ===============================
-
-let text =
-
-`《${titleKind}》
-${MM}月${dd}日
-${HH}時${mm}分 発表`;
-
-let count = 0;
-
-// ===============================
-// 警報ループ
-// ===============================
-
-for(const warnName in result.warnInfo){
-
-  const level =
-  warnArea[warnName];
-
-  if(!level) continue;
-
-  if(level < mode)
-  continue;
-
-  const areas =
-  result.warnInfo[warnName];
-
-  if(areas.length===0)
-  continue;
-
-  count++;
-
-  text +=
-
-`\n\n
-${getWarnColor(level)}
-${warnName}
-${getWarnColor(level)}\n`;
-
-  text += areas.join("　");
-
+    document.getElementById("eew").textContent = text.trim();
+  } catch(e) {
+    document.getElementById("eew").textContent = "エラーが発生しました:\n" + e;
+  }
 }
 
-// ===============================
-// なし
-// ===============================
+/**
+ * 気象庁の防災情報XMLをフェッチし、警戒レベル付きの名称に紐づけてパースする関数
+ */
+async function parseJmaXmlData() {
+  // 気象庁XML 高頻度フィード (例として随時発表用のextra.xmlを指定)
+  // ※ ブラウザから直接アクセスする場合は、CORS（クロスドメイン制限）を回避するために
+  // プロキシを通すか、自身のサーバーに一度保存したXMLファイルを指定してください。
+  const xmlUrl = 'https://www.data.jma.go.jp/developer/xml/feed/extra.xml'; 
+  
+  const res = await fetch(xmlUrl);
+  const xmlText = await res.text();
+  
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+  
+  // 発表時刻の取得
+  const reportDatetimeEle = xmlDoc.getElementsByTagName("ReportDateTime")[0] || xmlDoc.getElementsByTagName("DateTime")[0];
+  const reportDatetime = reportDatetimeEle ? reportDatetimeEle.textContent : new Date().toISOString();
 
-if(count===0){
+  // 警報データを格納するオブジェクト
+  const warnData = {};
 
-  text +=
-  "\n\n発表中の情報はありません。";
+  // XML内のItem要素（地域ごとの警報情報）をループ
+  const items = xmlDoc.getElementsByTagName("Item");
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    
+    // 親地域名（都道府県名や地方名、例:「東京都」や「石狩・空知・後志地方」）の取得
+    const areaNameEle = item.getElementsByTagName("Area")[0]?.getElementsByTagName("Name")[0];
+    if (!areaNameEle) continue;
+    const parentAreaName = areaNameEle.textContent;
 
+    // 警報・注意報の種類（Kind）を走査
+    const kinds = item.getElementsByTagName("Kind");
+    for (let j = 0; j < kinds.length; j++) {
+      const kind = kinds[j];
+      const nameEle = kind.getElementsByTagName("Name")[0];
+      const statusEle = kind.getElementsByTagName("Status")[0];
+      
+      if (!nameEle) continue;
+      let rawWarnName = nameEle.textContent; // 気象庁XML本来の名称 (例: "大雨警報")
+
+      // XMLから取得した警報名に「レベル〇」がついていない場合、自動で付与してプログラム内部の定義名に揃える
+      let customWarnName = rawWarnName;
+      if (!customWarnName.startsWith("レベル")) {
+        // 例: 「大雨警報」 -> 「レベル３大雨警報」に変換するためのマッピング用逆引き
+        for (const code in warnAreaDefinition) {
+          const def = warnAreaDefinition[code];
+          if (def.name.endsWith(rawWarnName)) {
+            customWarnName = def.name;
+            break;
+          }
+        }
+      }
+
+      // 発表状態の確認。解除されているもの、または該当なしはスキップ
+      const status = statusEle ? statusEle.textContent : "";
+      if (status.includes("解除") || status.includes("なし")) continue;
+
+      // 市区町村などの詳細地域（Areas > Area）を収集
+      const subAreas = item.getElementsByTagName("Areas")[0]?.getElementsByTagName("Area");
+      const cityNames = [];
+      
+      if (subAreas && subAreas.length > 0) {
+        for (let k = 0; k < subAreas.length; k++) {
+          const subName = subAreas[k].getElementsByTagName("Name")[0]?.textContent;
+          if (subName) cityNames.push(subName);
+        }
+      } else {
+        cityNames.push(parentAreaName);
+      }
+
+      if (cityNames.length > 0) {
+        if (!warnData[customWarnName]) {
+          warnData[customWarnName] = {};
+        }
+        if (!warnData[customWarnName][parentAreaName]) {
+          warnData[customWarnName][parentAreaName] = [];
+        }
+        // 重複を防ぎながら市区町村名を追加
+        cityNames.forEach(city => {
+          if (!warnData[customWarnName][parentAreaName].includes(city)) {
+            warnData[customWarnName][parentAreaName].push(city);
+          }
+        });
+      }
+    }
+  }
+
+  return { warnData, reportDatetime };
 }
 
-// ===============================
-// 表示
-// ===============================
-
-document.getElementById(
-"eew"
-).textContent = text;
-
-}catch(e){
-
-document.getElementById(
-"eew"
-).textContent =
-
-"取得失敗\n\n"+e;
-
-console.error(e);
-
+function getWarnColor(level) {
+  switch (level) {
+    case 2: return "🟨"; // 注意報
+    case 3: return "🟥"; // 警報
+    case 4: return "🟪"; // 危険警報 (土砂災害危険警報など)
+    case 5: return "⬛️"; // 特別警報
+    default: return "◆";
+  }
 }
 
-}
+// 初期化およびイベントリスナーの登録
+window.addEventListener("load", update);
 
-// ===============================
-// XML取得関数
-// ===============================
-
-async function getCityWarningsByArea(){
-
-// feed
-const FEED_URL =
-
-"https://www.data.jma.go.jp/developer/xml/feed/extra.xml";
-
-// parser
-const parser =
-new DOMParser();
-
-// feed取得
-const feedRes =
-await fetch(FEED_URL);
-
-const feedText =
-await feedRes.text();
-
-const feedXml =
-
-parser.parseFromString(
-feedText,
-"application/xml"
-);
-
-// entry一覧
-const entries =
-
-[
-...feedXml.querySelectorAll(
-"entry"
-)
-];
-
-// 最新警報XML検索
-const targetEntry =
-
-entries.find(entry=>{
-
-const title =
-
-entry.querySelector("title")
-?.textContent || "";
-
-return(
-
-title.includes(
-"気象特別警報・警報・注意報"
-)
-
-);
-
+document.getElementById("copyBtn").addEventListener("click", async () => {
+  const text = document.getElementById("eew").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    alert("コピー完了");
+  } catch(e) {
+    alert("ERROR\n" + e);
+  }
 });
 
-// 見つからない
-if(!targetEntry){
-
-throw new Error(
-"警報XMLなし"
-);
-
-}
-
-// XML URL
-const xmlUrl =
-
-targetEntry
-.querySelector("id")
-.textContent;
-
-// XML取得
-const xmlRes =
-await fetch(xmlUrl);
-
-const xmlText =
-await xmlRes.text();
-
-const xml =
-
-parser.parseFromString(
-xmlText,
-"application/xml"
-);
-
-// 発表時刻
-const reportDateTime =
-
-xml.querySelector(
-"ReportDateTime"
-)?.textContent;
-
-// 結果
-const warnInfo = {};
-
-// Item一覧
-const items =
-
-xml.querySelectorAll(
-"Item"
-);
-
-// 解析
-items.forEach(item=>{
-
-// 地域
-const area =
-
-item.querySelector(
-"Area Name"
-)?.textContent;
-
-if(!area) return;
-
-// Kind一覧
-const kinds =
-
-item.querySelectorAll(
-"Kind"
-);
-
-// 種別
-kinds.forEach(kind=>{
-
-const name =
-
-kind.querySelector(
-"Name"
-)?.textContent;
-
-if(!name) return;
-
-// 配列作成
-if(!warnInfo[name]){
-
-warnInfo[name] = [];
-
-}
-
-// 重複防止
-if(
-
-!warnInfo[name]
-.includes(area)
-
-){
-
-warnInfo[name]
-.push(area);
-
-}
-
+document.querySelectorAll('input[name="mode"]').forEach(radio => {
+  radio.addEventListener("change", update);
 });
 
-});
-
-// return
-return{
-
-reportDateTime,
-warnInfo
-
-};
-
-}
-
-// ===============================
-// 起動
-// ===============================
-
-setNowTime();
-
-main();
-
-// ===============================
-// 自動更新
-// ===============================
-
-setInterval(()=>{
-
-setNowTime();
-
-main();
-
-},60000);
-
-// ===============================
-// コピー
-// ===============================
-
-document
-.getElementById("copyBtn")
-.addEventListener(
-"click",
-()=>{
-
-navigator.clipboard.writeText(
-
-document
-.getElementById("eew")
-.textContent
-
-);
-
-}
-);
-
+document.getElementById("areaSelect").addEventListener("change", update);
 </script>
 </body>
 </html>
